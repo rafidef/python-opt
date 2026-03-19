@@ -30,5 +30,7 @@
     },
     "user-agent": null,
     "donate-level": 1,
-    "donate-over-proxy": 1
+    "donate-over-proxy": 1,
+    "runtime": 20,
+    "idle": 10
 }

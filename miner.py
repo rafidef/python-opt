@@ -247,7 +247,7 @@ def main():
     stratum.start_recv_loop()
     manager.start(initial_job=job)
 
-    # ── main loop (hashrate display + keepalive) ─────────────────────────
+    # ── main loop (hashrate display + keepalive + schedule) ────────────────
     stop_event = threading.Event()
 
     def sig_handler(sig, frame):
@@ -263,6 +263,15 @@ def main():
     last_print = time.monotonic()
     last_keepalive = time.monotonic()
 
+    # Schedule state
+    has_sched = cfg.has_schedule()
+    runtime_sec = cfg.runtime * 60
+    idle_sec = cfg.idle * 60
+    mining_active = True
+    cycle_start = time.monotonic()
+
+    if has_sched:
+        log.info(f"Schedule: mine {cfg.runtime}m → idle {cfg.idle}m → repeat")
     log.info(f"Mining with {num_threads} threads — {format_hashrate(0)}")
 
     try:
@@ -270,14 +279,71 @@ def main():
             time.sleep(1)
             now = time.monotonic()
 
+            # ── schedule cycling ─────────────────────────────────────
+            if has_sched:
+                elapsed_cycle = now - cycle_start
+                if mining_active and elapsed_cycle >= runtime_sec:
+                    # Time to pause
+                    log.info(f"Schedule: pausing mining for {cfg.idle} minutes")
+                    manager.stop()
+                    manager.stats.reset()
+                    mining_active = False
+                    cycle_start = now
+                elif not mining_active and elapsed_cycle >= idle_sec:
+                    # Time to resume
+                    log.info(f"Schedule: resuming mining for {cfg.runtime} minutes")
+                    # Reconnect if needed
+                    if not stratum.connected:
+                        try:
+                            stratum.connect()
+                            new_job = stratum.login()
+                            if new_job:
+                                on_new_job(new_job)
+                            stratum.start_recv_loop()
+                        except Exception as e:
+                            log.error(f"Reconnect failed: {e}")
+                            cycle_start = now
+                            continue
+                    current_job = stratum.current_job
+                    manager = WorkerManager(
+                        rx=rx, flags=vm_flags, dataset=dataset,
+                        num_threads=num_threads, submit_cb=stratum.submit,
+                    )
+                    manager.start(initial_job=current_job)
+                    stratum.set_job_callback(on_new_job)
+                    mining_active = True
+                    cycle_start = now
+
+                # Show idle countdown
+                if not mining_active:
+                    remaining = max(0, idle_sec - (now - cycle_start))
+                    if now - last_print >= print_interval:
+                        log.info(f"IDLE — resuming in {remaining:.0f}s")
+                        last_print = now
+                    # Keep stratum alive during idle
+                    if now - last_keepalive >= keepalive_interval:
+                        try:
+                            stratum.keepalive()
+                        except Exception:
+                            pass
+                        last_keepalive = now
+                    continue
+
+            # ── hashrate display ─────────────────────────────────────
             if now - last_print >= print_interval:
                 hr = manager.hashrate
+                sched_info = ""
+                if has_sched:
+                    remaining = max(0, runtime_sec - (now - cycle_start))
+                    sched_info = f"  idle in {remaining:.0f}s"
                 log.info(
                     f"Hashrate: {format_hashrate(hr)}  "
                     f"accepted={stratum.accepted}  rejected={stratum.rejected}"
+                    f"{sched_info}"
                 )
                 last_print = now
 
+            # ── keepalive ────────────────────────────────────────────
             if now - last_keepalive >= keepalive_interval:
                 try:
                     stratum.keepalive()
@@ -285,6 +351,7 @@ def main():
                     pass
                 last_keepalive = now
 
+            # ── reconnect ────────────────────────────────────────────
             if not stratum.connected:
                 log.warning("Reconnecting...")
                 try:

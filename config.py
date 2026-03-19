@@ -38,6 +38,9 @@ class MinerConfig:
         self.donate_level = 0
         self.log_file = None
         self.print_time = 60
+        # Dual-mining schedule (minutes, 0 = disabled)
+        self.runtime = 0
+        self.idle = 0
 
     @classmethod
     def from_file(cls, path: str) -> "MinerConfig":
@@ -101,6 +104,12 @@ class MinerConfig:
         self.log_file = data.get("log-file")
         self.print_time = data.get("print-time", 60)
 
+        # Dual-mining schedule
+        rt = data.get("runtime", 0)
+        self.runtime = int(rt) if rt else 0
+        il = data.get("idle", 0)
+        self.idle = int(il) if il else 0
+
     def get_thread_count(self) -> int:
         return self.threads if self.threads > 0 else multiprocessing.cpu_count()
 
@@ -115,9 +124,13 @@ class MinerConfig:
     def use_full_mem(self) -> bool:
         return self.rx_mode == "fast"
 
+    def has_schedule(self) -> bool:
+        return self.runtime > 0 and self.idle > 0
+
     def __repr__(self):
         pools = ", ".join(p["url"] for p in self.pools) if self.pools else "none"
+        sched = f", run={self.runtime}m/idle={self.idle}m" if self.has_schedule() else ""
         return (
             f"MinerConfig(threads={self.get_thread_count()}, mode={self.rx_mode}, "
-            f"hugepages={self.huge_pages}, 1gb={self.use_1gb_pages()}, pools=[{pools}])"
+            f"hugepages={self.huge_pages}, 1gb={self.use_1gb_pages()}, pools=[{pools}]{sched})"
         )

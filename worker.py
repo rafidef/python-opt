@@ -10,7 +10,7 @@ import time
 import logging
 import os
 
-from rx_bindings import RandomX, RANDOMX_HASH_SIZE
+from dataset_bindings import RandomX, RANDOMX_HASH_SIZE
 
 log = logging.getLogger(__name__)
 

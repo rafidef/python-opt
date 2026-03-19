@@ -150,6 +150,9 @@ class RandomX:
             raise RandomXError("randomx_create_vm failed")
         return vm
 
+    def get_vm_ptr(self, vm) -> int:
+        return ctypes.cast(vm, ctypes.c_void_p).value
+
     def vm_set_cache(self, vm, cache):
         self._lib.randomx_vm_set_cache(vm, cache)
 
@@ -172,6 +175,18 @@ class RandomX:
         self._lib.randomx_calculate_hash_next(vm, data, len(data), out)
         return out.raw
 
+    def calculate_hash_next_into(self, vm, data: bytes, out_buffer) -> None:
+        """Calculate next hash directly into an existing ctypes buffer to save allocations."""
+        self._lib.randomx_calculate_hash_next(vm, data, len(data), out_buffer)
+
     @property
     def lib(self):
         return self._lib
+
+    @property
+    def hash_first_ptr(self):
+        return ctypes.cast(self._lib.randomx_calculate_hash_first, ctypes.c_void_p).value
+
+    @property
+    def hash_next_ptr(self):
+        return ctypes.cast(self._lib.randomx_calculate_hash_next, ctypes.c_void_p).value

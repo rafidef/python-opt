@@ -51,6 +51,8 @@ int rx_batch_mine(
     hash_first_fn(vm, blob, blob_size);
     nonce += step;
 
+    int shares_found = 0;
+
     for (uint32_t i = 1; i < batch_size; i++) {
         uint32_t prev_nonce = nonce - step;
 
@@ -61,15 +63,15 @@ int rx_batch_mine(
         hash_next_fn(vm, blob, blob_size, hash_result);
 
         // Check if previous hash met the target
-        // XMRig compares bytes [24:32] as a little-endian uint64
         uint64_t hash_val;
         memcpy(&hash_val, hash_result + 24, 8); // Safe unaligned read
 
-        if (hash_val < target) {
-            // Share found
+        // If share found and we haven't already recorded one in this batch
+        if (hash_val < target && shares_found == 0) {
             *out_nonce = prev_nonce;
             memcpy(out_hash, hash_result, 32);
-            return i; // Stop early
+            shares_found = 1;
+            // DO NOT return early — we must finish the pipeline to keep state clean
         }
 
         nonce += step;
@@ -83,10 +85,11 @@ int rx_batch_mine(
     uint64_t hash_val;
     memcpy(&hash_val, hash_result + 24, 8);
 
-    if (hash_val < target) {
+    if (hash_val < target && shares_found == 0) {
         *out_nonce = prev_nonce;
         memcpy(out_hash, hash_result, 32);
+        shares_found = 1;
     }
 
-    return batch_size;
+    return shares_found; // Return 1 if a share was found, 0 otherwise
 }

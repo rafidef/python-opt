@@ -84,9 +84,10 @@ class StratumClient:
         raw.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         if self.tls:
             ctx = ssl.create_default_context()
-            if self.tls_fingerprint:
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
+            # Mining pools typically use self-signed certs — skip verification
+            # (matches xmrig default behavior)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
             self._sock = ctx.wrap_socket(raw, server_hostname=self.host)
         else:
             self._sock = raw

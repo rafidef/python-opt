@@ -133,10 +133,11 @@ class WorkerThread(threading.Thread):
 class WorkerManager:
     """Manages multiple mining worker threads."""
 
-    def __init__(self, rx: RandomX, flags: int, dataset, num_threads: int,
+    def __init__(self, rx: RandomX, flags: int, cache, dataset, num_threads: int,
                  submit_cb):
         self.rx = rx
         self.flags = flags
+        self.cache = cache
         self.dataset = dataset
         self.num_threads = num_threads
         self.submit_cb = submit_cb
@@ -147,11 +148,17 @@ class WorkerManager:
 
     def start(self, initial_job=None):
         """Create VMs and start all worker threads."""
+        from dataset_bindings import RANDOMX_FLAG_LARGE_PAGES
         self.job_holder[0] = initial_job
-        cache_ptr = ctypes.POINTER(ctypes.c_void_p)()  # NULL for full-mem mode
 
         for i in range(self.num_threads):
-            vm = self.rx.create_vm(self.flags, None, self.dataset)
+            try:
+                vm = self.rx.create_vm(self.flags, self.cache, self.dataset)
+            except Exception:
+                # Fallback if large pages for VM scratchpads run out
+                fallback_flags = self.flags & ~RANDOMX_FLAG_LARGE_PAGES
+                vm = self.rx.create_vm(fallback_flags, self.cache, self.dataset)
+                
             self._vms.append(vm)
             w = WorkerThread(
                 thread_id=i, rx=self.rx, vm=vm,

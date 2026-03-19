@@ -216,7 +216,7 @@ def main():
         vm_flags &= ~RANDOMX_FLAG_FULL_MEM
 
     manager = WorkerManager(
-        rx=rx, flags=vm_flags, dataset=dataset,
+        rx=rx, flags=vm_flags, cache=cache, dataset=dataset,
         num_threads=num_threads, submit_cb=stratum.submit,
     )
 
@@ -297,7 +297,7 @@ def main():
                             continue
                     current_job = stratum.current_job
                     manager = WorkerManager(
-                        rx=rx, flags=vm_flags, dataset=dataset,
+                        rx=rx, flags=vm_flags, cache=cache, dataset=dataset,
                         num_threads=num_threads, submit_cb=stratum.submit,
                     )
                     manager.start(initial_job=current_job)

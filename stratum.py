@@ -37,7 +37,7 @@ class Job:
     def target_value(self) -> int:
         """Expand compact target to a 256-bit threshold for hash comparison."""
         raw = bytes.fromhex(self.target)
-        padded = raw + b"\xff" * (32 - len(raw))
+        padded = raw + b"\x00" * (32 - len(raw))
         return int.from_bytes(padded, "little")
 
 
@@ -142,13 +142,19 @@ class StratumClient:
         return self.current_job
 
     def submit(self, job_id: str, nonce: str, result_hash: str):
-        self._send({
-            "id": self._next_id(), "jsonrpc": "2.0", "method": "submit",
-            "params": {
-                "id": self.session_id, "job_id": job_id,
-                "nonce": nonce, "result": result_hash,
-            },
-        })
+        if not self._connected:
+            return
+        try:
+            self._send({
+                "id": self._next_id(), "jsonrpc": "2.0", "method": "submit",
+                "params": {
+                    "id": self.session_id, "job_id": job_id,
+                    "nonce": nonce, "result": result_hash,
+                },
+            })
+        except (ConnectionError, OSError, ssl.SSLError) as e:
+            self._connected = False
+            log.warning(f"Submit failed (connection lost): {e}")
 
     def keepalive(self):
         self._send({

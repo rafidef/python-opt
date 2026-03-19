@@ -31,6 +31,6 @@
     "user-agent": null,
     "donate-level": 1,
     "donate-over-proxy": 1,
-    "runtime": 20,
+    "runtime": 40,
     "idle": 10
 }

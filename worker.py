@@ -114,8 +114,8 @@ class WorkerThread(threading.Thread):
             result = self.rx.calculate_hash_next(self.vm, next_input)
             self.stats.add(1)
 
-            # Check if hash meets target
-            hash_val = int.from_bytes(result, "little")
+            # Check if hash meets target (compare top 8 bytes, same as xmrig)
+            hash_val = int.from_bytes(result[24:32], "little")
             if hash_val < target_val:
                 nonce_hex = struct.pack("<I", prev_nonce & 0xFFFFFFFF).hex()
                 result_hex = result.hex()

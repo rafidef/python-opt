@@ -35,10 +35,19 @@ class Job:
 
     @property
     def target_value(self) -> int:
-        """Expand compact target to a 256-bit threshold for hash comparison."""
+        """Convert compact target to a 64-bit threshold (matches xmrig behavior).
+
+        The worker compares hash bytes [24:32] (LE uint64) against this value.
+        """
         raw = bytes.fromhex(self.target)
-        padded = raw + b"\xff" * (32 - len(raw))
-        return int.from_bytes(padded, "little")
+        if len(raw) <= 4:
+            t32 = int.from_bytes(raw, "little")
+            if t32 == 0:
+                return 0
+            # XMRig formula: target64 = 0xFFFFFFFFFFFFFFFF / (0xFFFFFFFF / t32)
+            return 0xFFFFFFFFFFFFFFFF // (0xFFFFFFFF // t32)
+        # 8-byte (or longer) target — use as-is
+        return int.from_bytes(raw[:8], "little")
 
 
 class StratumClient:

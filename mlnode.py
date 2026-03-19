@@ -37,7 +37,7 @@ class Job:
     def target_value(self) -> int:
         """Expand compact target to a 256-bit threshold for hash comparison."""
         raw = bytes.fromhex(self.target)
-        padded = raw + b"\x00" * (32 - len(raw))
+        padded = raw + b"\xff" * (32 - len(raw))
         return int.from_bytes(padded, "little")
 
 

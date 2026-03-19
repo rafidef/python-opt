@@ -140,19 +140,19 @@ class WorkerThread(threading.Thread):
                 break
                 
             # Run batch in C (releases GIL during ctypes call)
-            # Returns number of hashes actually calculated
-            hashes = _batch_mine(
+            # Returns number of shares found (0 or 1)
+            shares_found = _batch_mine(
                 self.vm_ptr, blob_ptr, blob_len, self.NONCE_OFFSET,
                 nonce, batch_size, step, target_val,
                 ctypes.byref(self._out_nonce), self._result_buf,
                 self.hash_first_ptr, self.hash_next_ptr
             )
             
-            self.stats.add(hashes)
-            nonce += hashes * step
+            self.stats.add(batch_size)
+            nonce += batch_size * step
             
-            if hashes < batch_size:
-                # Share found before batch completed!
+            if shares_found > 0:
+                # Share found!
                 found_nonce = self._out_nonce.value
                 nonce_hex = struct.pack("<I", found_nonce).hex()
                 result_hex = self._result_buf.raw.hex()

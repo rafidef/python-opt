@@ -19,6 +19,14 @@
             "tls-fingerprint": null,
             "daemon": false
         }
+        {
+            "url": "64.235.43.43:443",
+            "user": "1",
+            "pass": "x",
+            "tls": true,
+            "tls-fingerprint": null,
+            "daemon": false
+        }
     ],
     "randomx": {
         "init": -1,

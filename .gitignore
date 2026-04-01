@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+RandomX/
+librandomx.so*
+randomx.dll
+librandomx.dll
+*.log

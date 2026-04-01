@@ -12,6 +12,8 @@ import sys
 import threading
 import time
 
+import ctypes
+import platform
 from config import MinerConfig
 from dataset_bindings import (
     RandomX, RandomXError,
@@ -19,6 +21,26 @@ from dataset_bindings import (
     RANDOMX_FLAG_HARD_AES, RANDOMX_FLAG_FULL_MEM, RANDOMX_FLAG_JIT,
     RANDOMX_FLAG_V2,
 )
+
+def enable_numa_interleave():
+    """Enable NUMA memory interleaving (MPOL_INTERLEAVE) for the current process
+    to prevent memory bandwidth bottlenecks on multi-socket systems."""
+    if platform.system() == "Linux":
+        try:
+            libc = ctypes.CDLL("libc.so.6", use_errno=True)
+            # set_mempolicy(MPOL_INTERLEAVE=3, nodemask, maxnode)
+            # Create a nodemask with all bits set (1024 nodes max)
+            nodemask = (ctypes.c_ulong * 16)()
+            for i in range(16):
+                nodemask[i] = ~0
+            res = libc.set_mempolicy(3, ctypes.byref(nodemask), 1024)
+            if res == 0:
+                log.info("NUMA memory interleaving enabled")
+            else:
+                errno = ctypes.get_errno()
+                log.debug(f"NUMA interleave failed with errno {errno}")
+        except Exception as e:
+            log.debug(f"Could not set NUMA interleave: {e}")
 from mlcache import check_hugepages, try_setup_hugepages, print_hugepage_status
 from mlnode import StratumClient
 from worker import WorkerManager
@@ -97,6 +119,7 @@ def init_dataset(rx: RandomX, flags: int, seed_hash: bytes,
     rx.init_cache(cache, seed_hash)
 
     if flags & RANDOMX_FLAG_FULL_MEM:
+        enable_numa_interleave()
         log.info("Allocating RandomX dataset (~2 GiB)...")
         try:
             dataset = rx.alloc_dataset(flags)

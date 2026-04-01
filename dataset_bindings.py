@@ -251,3 +251,10 @@ class RandomX:
     @property
     def hash_next_ptr(self):
         return ctypes.cast(self._lib.randomx_calculate_hash_next, ctypes.c_void_p).value
+
+    @property
+    def hash_last_ptr(self):
+        try:
+            return ctypes.cast(self._lib.randomx_calculate_hash_last, ctypes.c_void_p).value
+        except AttributeError:
+            return 0

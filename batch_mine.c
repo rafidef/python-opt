@@ -19,6 +19,7 @@ typedef void* rx_vm_t;
 // Function pointers to the RandomX C library
 typedef void (*rx_calc_first_t)(rx_vm_t vm, const void* input, size_t inputSize);
 typedef void (*rx_calc_next_t)(rx_vm_t vm, const void* nextInput, size_t nextInputSize, void* output);
+typedef void (*rx_calc_last_t)(rx_vm_t vm, void* output);
 
 /**
  * Pipelined batched mining loop to avoid Python GIL overhead.
@@ -52,7 +53,8 @@ int rx_batch_mine(
     uint32_t* out_nonce,
     uint8_t* out_hash,
     rx_calc_first_t hash_first_fn,
-    rx_calc_next_t hash_next_fn
+    rx_calc_next_t hash_next_fn,
+    rx_calc_last_t hash_last_fn
 ) {
     if (batch_size == 0) return 0;
 
@@ -93,8 +95,12 @@ int rx_batch_mine(
 
     // Process last result
     uint32_t prev_nonce = nonce - step;
-    *nonce_ptr = nonce; // Dummy next input (ignored)
-    hash_next_fn(vm, blob, blob_size, hash_result);
+    if (hash_last_fn != NULL) {
+        hash_last_fn(vm, hash_result);
+    } else {
+        *nonce_ptr = nonce; // Dummy next input (ignored)
+        hash_next_fn(vm, blob, blob_size, hash_result);
+    }
 
     uint64_t hash_val;
     memcpy(&hash_val, hash_result + 24, 8);

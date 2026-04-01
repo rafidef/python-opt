@@ -68,7 +68,7 @@ def _load_batch_miner():
             ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
             ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint64,
             ctypes.POINTER(ctypes.c_uint32), ctypes.c_void_p,
-            ctypes.c_void_p, ctypes.c_void_p
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p
         ]
         log.info("Loaded fast C batch miner extension")
         return lib.rx_batch_mine
@@ -95,6 +95,7 @@ class WorkerThread(threading.Thread):
         self.vm_ptr = rx.get_vm_ptr(vm)
         self.hash_first_ptr = rx.hash_first_ptr
         self.hash_next_ptr = rx.hash_next_ptr
+        self.hash_last_ptr = rx.hash_last_ptr
         self.job_holder = job_holder  # mutable container: [job]
         self.stats = stats
         self.submit_cb = submit_cb
@@ -157,7 +158,7 @@ class WorkerThread(threading.Thread):
                 self.vm_ptr, blob_ptr, blob_len, self.NONCE_OFFSET,
                 nonce, batch_size, step, target_val,
                 ctypes.byref(self._out_nonce), self._result_buf,
-                self.hash_first_ptr, self.hash_next_ptr
+                self.hash_first_ptr, self.hash_next_ptr, self.hash_last_ptr
             )
             
             self.stats.add(batch_size)

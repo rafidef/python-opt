@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""
+pyrx-miner v2.0 — Python Monero miner with RandomX v1/v2 support.
+"""
 
 import argparse
 import logging
@@ -14,6 +17,7 @@ from dataset_bindings import (
     RandomX, RandomXError,
     RANDOMX_FLAG_DEFAULT, RANDOMX_FLAG_LARGE_PAGES,
     RANDOMX_FLAG_HARD_AES, RANDOMX_FLAG_FULL_MEM, RANDOMX_FLAG_JIT,
+    RANDOMX_FLAG_V2,
 )
 from mlcache import check_hugepages, try_setup_hugepages, print_hugepage_status
 from mlnode import StratumClient
@@ -21,12 +25,16 @@ from worker import WorkerManager
 
 log = logging.getLogger("pyrx")
 
+VERSION = "2.0.0"
+
 BANNER = r"""
  ______   __  __  ______   __  __        __    __   __   __   __   ______   ______
-/\  == \ /\ \_\ \/\  == \ /\_\_\_\      /\ "-./  \ /\ \ /\ "-.\ \ /\  ___\ /\  == \
+/\  == \ /\ \_\ \/\  == \ /\_\_\_\      /\ "-./  \ /\ \ /\ "-.\  /\  ___\ /\  == \
 \ \  _-/ \ \____ \ \  __< \/_/\_\/_     \ \ \-./\ \\ \ \\ \ \-.  \\ \  __\ \ \  __<
- \ \_\    \/\_____\\ \_\ \_\ /\_\/\_\    \ \_\ \ \_\\ \_\\ \_\\"\_\\ \_____\\ \_\ \_\
+ \ \_\    \/\_____\\ \_\ \_\ /\_\/\_\    \ \_\ \ \_\\ \_\\ \_\\"\_ \\ \_____\\ \_\ \_\
   \/_/     \/_____/ \/_/ /_/ \/_/\/_/     \/_/  \/_/ \/_/ \/_/ \/_/ \/_____/ \/_/ /_/
+
+                    v2.0 — RandomX v1 (rx/0) + v2 (rx/2) support
 """
 
 
@@ -40,8 +48,8 @@ def setup_logging(level: str = "INFO", log_file: str = None):
                         format=fmt, datefmt=datefmt, handlers=handlers)
 
 
-def build_rx_flags(cfg: MinerConfig, hp_info: dict) -> int:
-    """Compute RandomX flags from config and detected CPU features."""
+def build_rx_flags(cfg: MinerConfig, hp_info: dict, algo: str = "rx/2") -> tuple:
+    """Compute RandomX flags from config, detected CPU features, and target algorithm."""
     rx = RandomX()
     flags = rx.get_flags()  # auto-detect CPU features
 
@@ -61,6 +69,17 @@ def build_rx_flags(cfg: MinerConfig, hp_info: dict) -> int:
         pass  # auto-detected by get_flags()
 
     flags |= RANDOMX_FLAG_JIT
+
+    # ── RandomX v2 flag ──────────────────────────────────────────────
+    if algo in ("rx/2", "randomx/2", "RandomX/2"):
+        if rx.v2_available:
+            flags |= RANDOMX_FLAG_V2
+            log.info("RandomX v2 (rx/2) flag enabled")
+        else:
+            log.warning("Pool requested rx/2 but library does not support it — using rx/0")
+    else:
+        log.info(f"Using algorithm: {algo}")
+
     return flags, rx
 
 
@@ -128,22 +147,24 @@ def format_hashrate(h: float) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="py-MLT: Python ML Trainer")
+    parser = argparse.ArgumentParser(description="pyrx-miner v2: Python Monero Miner")
     parser.add_argument("--config", "-c", default="dataset-config.json", help="Path to xmrig config.json")
     parser.add_argument("--url", help="Pool URL (overrides config)")
     parser.add_argument("--user", help="Wallet/login (overrides config)")
     parser.add_argument("--pass", dest="password", help="Password (overrides config)")
     parser.add_argument("--threads", "-t", type=int, help="Thread count (overrides config)")
     parser.add_argument("--tls", action="store_true", help="Enable TLS")
+    parser.add_argument("--algo", default=None, help="Force algorithm: rx/0 or rx/2 (default: auto-negotiate)")
     parser.add_argument("--no-hugepages", action="store_true", help="Disable hugepages")
     parser.add_argument("--log-level", default="INFO", help="Log level")
     parser.add_argument("--dry-run", action="store_true", help="Init only, no mining")
     parser.add_argument("--lib", help="Path to librandomx shared library")
+    parser.add_argument("--version", "-V", action="version", version=f"pyrx-miner {VERSION}")
     args = parser.parse_args()
 
     setup_logging(args.log_level)
     print(BANNER)
-    log.info(f"pyrx-miner starting on {platform.system()} {platform.machine()}")
+    log.info(f"pyrx-miner v{VERSION} starting on {platform.system()} {platform.machine()}")
 
     # ── config ───────────────────────────────────────────────────────────
     cfg = MinerConfig.from_file(args.config)
@@ -180,17 +201,14 @@ def main():
     hp_info = check_hugepages(want_1gb=cfg.use_1gb_pages())
     print_hugepage_status()
 
-    # ── RandomX init ─────────────────────────────────────────────────────
-    flags, rx = build_rx_flags(cfg, hp_info)
-    if args.lib:
-        rx = RandomX(args.lib)
-
     # ── stratum connect ──────────────────────────────────────────────────
-    agent = cfg.user_agent or "pyrx-miner/1.0"
+    agent = cfg.user_agent or f"pyrx-miner/{VERSION}"
+    force_algo = args.algo or pool.get("algo")  # CLI > config > auto-negotiate
     stratum = StratumClient(
         url=pool["url"], user=pool["user"], password=pool["pass"],
         tls=pool.get("tls", False), user_agent=agent,
         tls_fingerprint=pool.get("tls_fingerprint"),
+        algo=force_algo,
     )
 
     stratum.connect()
@@ -199,6 +217,15 @@ def main():
         log.error("No job received from pool")
         return
 
+    # Determine algorithm from pool's response
+    active_algo = job.algo
+    log.info(f"Pool selected algorithm: {active_algo}")
+
+    # ── RandomX init ─────────────────────────────────────────────────────
+    flags, rx = build_rx_flags(cfg, hp_info, algo=active_algo)
+    if args.lib:
+        rx = RandomX(args.lib)
+
     # ── dataset init ─────────────────────────────────────────────────────
     seed = job.seed_hash
     init_threads = cfg.rx_init_threads if cfg.rx_init_threads > 0 else num_threads
@@ -206,7 +233,8 @@ def main():
 
     if args.dry_run:
         log.info("Dry run complete — dataset initialized, exiting")
-        rx.release_dataset(dataset)
+        if dataset:
+            rx.release_dataset(dataset)
         rx.release_cache(cache)
         return
 
@@ -221,10 +249,35 @@ def main():
     )
 
     current_seed = seed
+    current_algo = active_algo
 
     def on_new_job(new_job):
-        nonlocal current_seed, cache, dataset
-        if new_job.seed_hash != current_seed:
+        nonlocal current_seed, current_algo, cache, dataset, flags, manager, vm_flags
+
+        algo_changed = new_job.algo != current_algo
+        seed_changed = new_job.seed_hash != current_seed
+
+        if algo_changed:
+            log.info(f"Algorithm changed: {current_algo} → {new_job.algo}")
+            current_algo = new_job.algo
+            # Rebuild flags with new algorithm
+            new_flags, _ = build_rx_flags(cfg, hp_info, algo=current_algo)
+            if new_flags != flags:
+                log.info("Rebuilding VMs with new flags...")
+                flags = new_flags
+                vm_flags = flags
+                if dataset is None:
+                    vm_flags &= ~RANDOMX_FLAG_FULL_MEM
+                manager.stop()
+                manager = WorkerManager(
+                    rx=rx, flags=vm_flags, cache=cache, dataset=dataset,
+                    num_threads=num_threads, submit_cb=stratum.submit,
+                )
+                manager.start(initial_job=new_job)
+                stratum.set_job_callback(on_new_job)
+                return
+
+        if seed_changed:
             log.info("Seed changed — reinitializing dataset...")
             current_seed = new_job.seed_hash
             rx.init_cache(cache, current_seed)
@@ -232,6 +285,7 @@ def main():
                 item_count = rx.dataset_item_count()
                 rx.init_dataset(dataset, cache, 0, item_count)
             log.info("Dataset reinitialized")
+
         manager.set_job(new_job)
 
     stratum.set_job_callback(on_new_job)
@@ -263,7 +317,7 @@ def main():
 
     if has_sched:
         log.info(f"Schedule: mine {cfg.runtime}m → idle {cfg.idle}m → repeat")
-    log.info(f"Mining with {num_threads} threads — {format_hashrate(0)}")
+    log.info(f"Mining with {num_threads} threads — algo={current_algo} — {format_hashrate(0)}")
 
     try:
         while not stop_event.is_set():
@@ -329,6 +383,7 @@ def main():
                     sched_info = f"  idle in {remaining:.0f}s"
                 log.info(
                     f"Hashrate: {format_hashrate(hr)}  "
+                    f"algo={current_algo}  "
                     f"accepted={stratum.accepted}  rejected={stratum.rejected}"
                     f"{sched_info}"
                 )

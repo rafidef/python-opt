@@ -1,6 +1,18 @@
 #include <stdint.h>
 #include <string.h>
 
+/*
+ * RandomX batch miner C extension — compatible with both rx/0 and rx/2.
+ *
+ * This extension calls the RandomX library's hash_first/hash_next functions
+ * via function pointers passed from Python. The algorithm differences between
+ * v1 and v2 are entirely handled inside the RandomX library — the VM is
+ * configured with the correct flags (RANDOMX_FLAG_V2) before mining begins.
+ *
+ * v2 changes (384 instructions, AES register mixing, extended prefetch) are
+ * transparent to this code since hash_first/hash_next API is unchanged.
+ */
+
 // Type definitions matching dataset_bindings.py
 typedef void* rx_vm_t;
 
@@ -10,10 +22,12 @@ typedef void (*rx_calc_next_t)(rx_vm_t vm, const void* nextInput, size_t nextInp
 
 /**
  * Pipelined batched mining loop to avoid Python GIL overhead.
+ * Works with both RandomX v1 (rx/0) and v2 (rx/2) — the VM determines
+ * which algorithm variant is executed.
  * 
- * @param vm             RandomX VM instance
+ * @param vm             RandomX VM instance (configured with appropriate flags)
  * @param blob           Monero block hashing blob (mutable)
- * @param blob_size      Size of the blob (usually 76 bytes for rx/0)
+ * @param blob_size      Size of the blob (usually 76 bytes for rx/0 and rx/2)
  * @param nonce_offset   Offset of the 4-byte nonce (usually 39)
  * @param start_nonce    Starting nonce for this thread
  * @param batch_size     Number of hashes to compute in this batch
@@ -24,7 +38,7 @@ typedef void (*rx_calc_next_t)(rx_vm_t vm, const void* nextInput, size_t nextInp
  * @param hash_first_fn  Pointer to randomx_calculate_hash_first
  * @param hash_next_fn   Pointer to randomx_calculate_hash_next
  * 
- * @return Number of hashes actually computed. If < batch_size, a share was found.
+ * @return Number of shares found (0 or 1). 
  */
 int rx_batch_mine(
     rx_vm_t vm,
@@ -79,7 +93,7 @@ int rx_batch_mine(
 
     // Process last result
     uint32_t prev_nonce = nonce - step;
-    *nonce_ptr = nonce; // Dummy next Input (ignored)
+    *nonce_ptr = nonce; // Dummy next input (ignored)
     hash_next_fn(vm, blob, blob_size, hash_result);
 
     uint64_t hash_val;

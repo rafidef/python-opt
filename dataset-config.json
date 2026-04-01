@@ -17,7 +17,8 @@
             "pass": "x",
             "tls": true,
             "tls-fingerprint": null,
-            "daemon": false
+            "daemon": false,
+            "algo": null
         }
     ],
     "randomx": {
@@ -26,7 +27,8 @@
         "1gb-pages": true,
         "rdmsr": true,
         "wrmsr": true,
-        "cache_qos": false
+        "cache_qos": false,
+        "v2": true
     },
     "user-agent": null,
     "donate-level": 1,

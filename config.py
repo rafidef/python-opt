@@ -1,5 +1,6 @@
 """
 XMRig config.json parser — compatible with standard xmrig configuration format.
+Supports RandomX v1 (rx/0) and v2 (rx/2).
 """
 import json
 import os
@@ -33,6 +34,7 @@ class MinerConfig:
         self.rx_rdmsr = True
         self.rx_wrmsr = True
         self.rx_cache_qos = False
+        self.rx_v2 = True  # Enable RandomX v2 by default
         # General
         self.user_agent = None
         self.donate_level = 0
@@ -98,6 +100,7 @@ class MinerConfig:
             self.rx_rdmsr = rx.get("rdmsr", True)
             self.rx_wrmsr = rx.get("wrmsr", True)
             self.rx_cache_qos = rx.get("cache_qos", False)
+            self.rx_v2 = rx.get("v2", True)  # Default: enable v2
 
         self.user_agent = data.get("user-agent")
         self.donate_level = data.get("donate-level", 0)
@@ -130,7 +133,9 @@ class MinerConfig:
     def __repr__(self):
         pools = ", ".join(p["url"] for p in self.pools) if self.pools else "none"
         sched = f", run={self.runtime}m/idle={self.idle}m" if self.has_schedule() else ""
+        v2 = "rx/2" if self.rx_v2 else "rx/0"
         return (
             f"MinerConfig(threads={self.get_thread_count()}, mode={self.rx_mode}, "
-            f"hugepages={self.huge_pages}, 1gb={self.use_1gb_pages()}, pools=[{pools}]{sched})"
+            f"algo={v2}, hugepages={self.huge_pages}, 1gb={self.use_1gb_pages()}, "
+            f"pools=[{pools}]{sched})"
         )

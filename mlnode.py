@@ -1,6 +1,7 @@
 """
 Monero Stratum protocol client for pool mining.
 Handles login, job dispatch, share submission, TLS, and keepalive.
+Supports both rx/0 (RandomX v1) and rx/2 (RandomX v2) algorithm negotiation.
 """
 import json
 import socket
@@ -10,6 +11,9 @@ import time
 import logging
 
 log = logging.getLogger(__name__)
+
+# Supported algorithms — advertised to pool during login
+SUPPORTED_ALGOS = ["rx/0", "rx/2"]
 
 
 class Job:
@@ -23,6 +27,11 @@ class Job:
         self.seed_hash = bytes.fromhex(data.get("seed_hash", "0" * 64))
         self.height   = data.get("height", 0)
         self.algo     = data.get("algo", "rx/0")
+
+    @property
+    def is_v2(self) -> bool:
+        """Whether this job uses RandomX v2."""
+        return self.algo in ("rx/2", "randomx/2", "RandomX/2")
 
     @property
     def target_difficulty(self) -> int:
@@ -51,16 +60,19 @@ class Job:
 
 
 class StratumClient:
-    """JSON-RPC stratum client for Monero pools."""
+    """JSON-RPC stratum client for Monero pools.
+    Supports rx/0 and rx/2 algorithm negotiation.
+    """
 
     def __init__(self, url: str, user: str, password: str = "x",
-                 tls: bool = False, user_agent: str = "pyrx-miner/1.0",
-                 tls_fingerprint: str = None):
+                 tls: bool = False, user_agent: str = "pyrx-miner/2.0",
+                 tls_fingerprint: str = None, algo: str = None):
         self.user = user
         self.password = password
         self.tls = tls
         self.tls_fingerprint = tls_fingerprint
-        self.user_agent = user_agent or "pyrx-miner/1.0"
+        self.user_agent = user_agent or "pyrx-miner/2.0"
+        self._force_algo = algo  # None = auto-negotiate
 
         self.session_id = None
         self.current_job: Job | None = None
@@ -128,12 +140,13 @@ class StratumClient:
 
     # ── RPC methods ──────────────────────────────────────────────────────
     def login(self) -> Job:
+        algo_list = [self._force_algo] if self._force_algo else SUPPORTED_ALGOS
         mid = self._next_id()
         self._send({
             "id": mid, "jsonrpc": "2.0", "method": "login",
             "params": {
                 "login": self.user, "pass": self.password,
-                "agent": self.user_agent, "algo": ["rx/0"],
+                "agent": self.user_agent, "algo": algo_list,
             },
         })
         resp = json.loads(self._recv_line())
@@ -144,9 +157,11 @@ class StratumClient:
         jd = result.get("job")
         if jd:
             self.current_job = Job(jd)
+            algo_str = self.current_job.algo
             log.info(
                 f"Logged in  job={self.current_job.job_id}  "
-                f"h={self.current_job.height}  diff={self.current_job.target_difficulty}"
+                f"h={self.current_job.height}  diff={self.current_job.target_difficulty}  "
+                f"algo={algo_str}"
             )
         return self.current_job
 
@@ -192,7 +207,8 @@ class StratumClient:
                     self.current_job = Job(jd)
                     log.info(
                         f"New job  id={self.current_job.job_id}  "
-                        f"h={self.current_job.height}  diff={self.current_job.target_difficulty}"
+                        f"h={self.current_job.height}  diff={self.current_job.target_difficulty}  "
+                        f"algo={self.current_job.algo}"
                     )
                     if self._job_cb:
                         self._job_cb(self.current_job)

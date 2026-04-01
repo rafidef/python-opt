@@ -1,5 +1,6 @@
 """
 RandomX ctypes bindings — wraps librandomx.so / randomx.dll for native-speed hashing.
+Supports both RandomX v1 (rx/0) and RandomX v2 (rx/2).
 """
 import ctypes
 import ctypes.util
@@ -14,9 +15,10 @@ RANDOMX_FLAG_HARD_AES     = 2
 RANDOMX_FLAG_FULL_MEM     = 4
 RANDOMX_FLAG_JIT          = 8
 RANDOMX_FLAG_SECURE       = 16
-RANDOMX_FLAG_ARGON2_SSSE3 = 24
-RANDOMX_FLAG_ARGON2_AVX2  = 40
-RANDOMX_FLAG_ARGON2       = RANDOMX_FLAG_ARGON2_SSSE3
+RANDOMX_FLAG_ARGON2_SSSE3 = 32
+RANDOMX_FLAG_ARGON2_AVX2  = 64
+RANDOMX_FLAG_ARGON2       = RANDOMX_FLAG_ARGON2_SSSE3 | RANDOMX_FLAG_ARGON2_AVX2  # 96
+RANDOMX_FLAG_V2           = 128   # RandomX v2 (rx/2) — AES register mixing, 384 instructions
 
 RANDOMX_HASH_SIZE          = 32
 RANDOMX_DATASET_BASE_SIZE  = 2147483648   # 2 GiB
@@ -55,6 +57,11 @@ def _find_library() -> str | None:
     ]
     if system == "Linux":
         dirs += [Path("/usr/local/lib"), Path("/usr/lib"), Path("/usr/lib64")]
+    if system == "Windows":
+        dirs += [
+            Path(__file__).parent / "RandomX" / "build" / "Release",
+            Path(__file__).parent / "RandomX" / "build" / "Debug",
+        ]
 
     for d in dirs:
         for n in names:
@@ -67,16 +74,19 @@ def _find_library() -> str | None:
 
 
 class RandomX:
-    """High-level interface to the RandomX C library via ctypes."""
+    """High-level interface to the RandomX C library via ctypes.
+    Supports v1 (rx/0) and v2 (rx/2) algorithms.
+    """
 
     def __init__(self, lib_path: str | None = None):
         path = lib_path or _find_library()
         if path is None:
             raise RandomXError(
-                "RandomX library not found. Build with build_randomx.sh / .ps1"
+                "RandomX library not found. Build with build_dataset.sh / .ps1"
             )
         self._lib = ctypes.CDLL(path)
         self._bind()
+        self._v2_available = self._check_v2()
 
     # ── internal binding ─────────────────────────────────────────────────
     def _bind(self):
@@ -110,6 +120,31 @@ class RandomX:
         sig(L.randomx_calculate_hash_first, None,      [vm_p, voidp, sz])
         sig(L.randomx_calculate_hash_next,  None,      [vm_p, voidp, sz, voidp])
 
+        # ── v2 API additions ─────────────────────────────────────────
+        try:
+            sig(L.randomx_calculate_hash_last, None, [vm_p, voidp])
+        except AttributeError:
+            pass  # Old library without hash_last — not critical
+
+        try:
+            sig(L.randomx_get_cache_memory, voidp, [cache_p])
+        except AttributeError:
+            pass  # Old library without cache memory access
+
+    def _check_v2(self) -> bool:
+        """Check if the loaded library supports RandomX v2."""
+        try:
+            # V2 libraries export randomx_calculate_hash_last
+            _ = self._lib.randomx_calculate_hash_last
+            return True
+        except AttributeError:
+            return False
+
+    @property
+    def v2_available(self) -> bool:
+        """Whether the loaded RandomX library supports v2 (rx/2)."""
+        return self._v2_available
+
     # ── public API ───────────────────────────────────────────────────────
     def get_flags(self) -> int:
         return self._lib.randomx_get_flags()
@@ -125,6 +160,13 @@ class RandomX:
 
     def release_cache(self, cache):
         self._lib.randomx_release_cache(cache)
+
+    def get_cache_memory(self, cache) -> int:
+        """Return pointer to cache internal memory buffer (v2 API)."""
+        try:
+            return self._lib.randomx_get_cache_memory(cache)
+        except AttributeError:
+            return 0
 
     def alloc_dataset(self, flags: int):
         ds = self._lib.randomx_alloc_dataset(flags)
@@ -178,6 +220,25 @@ class RandomX:
     def calculate_hash_next_into(self, vm, data: bytes, out_buffer) -> None:
         """Calculate next hash directly into an existing ctypes buffer to save allocations."""
         self._lib.randomx_calculate_hash_next(vm, data, len(data), out_buffer)
+
+    def calculate_hash_last(self, vm) -> bytes:
+        """Finalize the pipeline and return the last hash result (v2 API)."""
+        out = ctypes.create_string_buffer(RANDOMX_HASH_SIZE)
+        try:
+            self._lib.randomx_calculate_hash_last(vm, out)
+        except AttributeError:
+            # Fallback for v1 libraries: feed a dummy input to get the last result
+            dummy = b"\x00" * 76
+            self._lib.randomx_calculate_hash_next(vm, dummy, len(dummy), out)
+        return out.raw
+
+    def calculate_hash_last_into(self, vm, out_buffer) -> None:
+        """Finalize the pipeline into an existing buffer (v2 API)."""
+        try:
+            self._lib.randomx_calculate_hash_last(vm, out_buffer)
+        except AttributeError:
+            dummy = b"\x00" * 76
+            self._lib.randomx_calculate_hash_next(vm, dummy, len(dummy), out_buffer)
 
     @property
     def lib(self):

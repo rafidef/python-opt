@@ -2,6 +2,7 @@
 Multi-threaded mining workers.
 Each thread owns a RandomX VM; all share one dataset.
 Uses pipelined hashing (hash_first / hash_next) for throughput.
+Supports both RandomX v1 (rx/0) and v2 (rx/2).
 """
 import ctypes
 import struct
@@ -51,9 +52,16 @@ def _load_batch_miner():
     """Try to load the C batch miner extension."""
     try:
         from pathlib import Path
-        lib_path = Path(__file__).parent / "libbatchmine.so"
+        # Try platform-appropriate extension
+        lib_name = "libbatchmine.so"
+        if os.name == "nt":
+            lib_name = "batchmine.dll"
+        lib_path = Path(__file__).parent / lib_name
         if not lib_path.exists():
-            return None
+            # Try the .so name on Windows too (in case cross-compiled)
+            lib_path = Path(__file__).parent / "libbatchmine.so"
+            if not lib_path.exists():
+                return None
         lib = ctypes.CDLL(str(lib_path))
         lib.rx_batch_mine.restype = ctypes.c_int
         lib.rx_batch_mine.argtypes = [
@@ -72,7 +80,9 @@ _batch_mine = _load_batch_miner()
 
 
 class WorkerThread(threading.Thread):
-    """Single mining thread with its own RandomX VM."""
+    """Single mining thread with its own RandomX VM.
+    Algorithm-agnostic: v1/v2 is handled by the RandomX library flags.
+    """
 
     NONCE_OFFSET = 39  # byte offset of nonce in Monero block blob
 
@@ -119,7 +129,9 @@ class WorkerThread(threading.Thread):
         log.debug(f"[{self.name}] stopped")
 
     def _mine_job_c_batch(self, job):
-        """Ultra-fast mining using C batch extension."""
+        """Ultra-fast mining using C batch extension.
+        Works with both rx/0 and rx/2 — the VM flags control the algorithm.
+        """
         blob = bytearray(job.blob)
         blob_len = len(blob)
         target_val = job.target_value
@@ -166,7 +178,9 @@ class WorkerThread(threading.Thread):
                 nonce = self.thread_id
 
     def _mine_job_python(self, job):
-        """Original Python fallback loader."""
+        """Python fallback miner.
+        Works with both rx/0 and rx/2 — the VM flags control the algorithm.
+        """
         blob = bytearray(job.blob)
         target_val = job.target_value
         job_id = job.job_id
